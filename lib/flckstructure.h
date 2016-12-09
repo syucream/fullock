@@ -19,6 +19,7 @@
 #define	FLCKSTRUCTURE_H
 
 #include <stdint.h>
+#include <sys/stat.h>
 
 #include "flckcommon.h"
 #include "fullock.h"

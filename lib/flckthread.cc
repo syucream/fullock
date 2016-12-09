@@ -16,8 +16,11 @@
  */
 
 #include <pthread.h>
-#include <sys/epoll.h>
-#include <sys/inotify.h>
+// #include <sys/epoll.h>
+// #include <sys/inotify.h>
+#include <sys/types.h> /* kqueue */
+#include <sys/event.h> /* kqueue */
+#include <fcntl.h>     /* kqueue */
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
@@ -73,17 +76,20 @@ void* FlckThread::WorkerProc(void* param)
 	int	EventFd;
 
 	// create event fd
-	if(-1 == (EventFd = epoll_create1(EPOLL_CLOEXEC))){
+	// if(-1 == (EventFd = epoll_create1(EPOLL_CLOEXEC))){
+	if(-1 == (EventFd = kqueue())){
 		ERR_FLCKPRN("Failed to create epoll, error %d", errno);
 		pthread_exit(NULL);
 	}
 	// create inotify
-	if(-1 == (InotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC))){
+	// if(-1 == (InotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC))){
+	if(-1 == (InotifyFd = open(pfilepath, O_NONBLOCK | O_CLOEXEC))){
 		ERR_FLCKPRN("Failed to create inotify, error %d", errno);
 		FLCK_CLOSE(EventFd);
 		pthread_exit(NULL);
 	}
 	// add file to inotify
+    /*
 	if(FLCK_INVALID_HANDLE == (WatchFd = inotify_add_watch(InotifyFd, pfilepath, IN_CLOSE))){
 		ERR_FLCKPRN("Could not add to watch file %s (errno=%d)", pfilepath, errno);
 		FLCK_CLOSE(InotifyFd);
@@ -91,17 +97,22 @@ void* FlckThread::WorkerProc(void* param)
 		FLCK_Free(pfilepath);
 		pthread_exit(NULL);
 	}
+    */
 	FLCK_Free(pfilepath);
 
 	// add event
-	struct epoll_event	epoolev;
-	memset(&epoolev, 0, sizeof(struct epoll_event));
-	epoolev.data.fd	= InotifyFd;
-	epoolev.events	= EPOLLIN | EPOLLET;
+	// struct epoll_event	epoolev;
+	// memset(&epoolev, 0, sizeof(struct epoll_event));
+	// epoolev.data.fd	= InotifyFd;
+	// epoolev.events	= EPOLLIN | EPOLLET;
+	struct kevent	epoolev;
+    EV_SET(&epoolev, InotifyFd, EVFILT_VNODE, EV_ADD, NOTE_FUNLOCK, 0, NULL);
 
-	if(-1 == epoll_ctl(EventFd, EPOLL_CTL_ADD, InotifyFd, &epoolev)){
+	// if(-1 == epoll_ctl(EventFd, EPOLL_CTL_ADD, InotifyFd, &epoolev)){
+	if(-1 == kevent(EventFd, &epoolev, 1, NULL, 0, NULL)){
 		ERR_FLCKPRN("Failed to add inotifyfd(%d)-watchfd(%d) to event fd(%d), error=%d", InotifyFd, WatchFd, EventFd, errno);
-		inotify_rm_watch(InotifyFd, WatchFd);
+        // inotify_rm_watch(InotifyFd, WatchFd);
+        close(InotifyFd);
 		FLCK_CLOSE(InotifyFd);
 		FLCK_CLOSE(EventFd);
 		pthread_exit(NULL);
@@ -109,7 +120,8 @@ void* FlckThread::WorkerProc(void* param)
 
 	// do loop
 	struct timespec		sleepms = {(intervalms / 1000), (intervalms % 1000) * 1000 * 1000};
-	struct epoll_event  events[FLCK_WAIT_EVENT_MAX];
+	// struct epoll_event  events[FLCK_WAIT_EVENT_MAX];
+	struct kevent	    events;
 	int					eventcnt;
 
 	while(FlckThread::FLCK_THCNTL_EXIT != *pThFlag){
@@ -121,13 +133,16 @@ void* FlckThread::WorkerProc(void* param)
 
 		if(FlckThread::FLCK_THCNTL_RUN == *pThFlag){
 			// wait event
-			if(0 < (eventcnt = epoll_pwait(EventFd, events, FLCK_WAIT_EVENT_MAX, intervalms, NULL))){
+			// if(0 < (eventcnt = epoll_pwait(EventFd, events, FLCK_WAIT_EVENT_MAX, intervalms, NULL))){
+			if(0 < (eventcnt = kevent(EventFd, NULL, 0, &events, 1, NULL))){
 				// catch event
 				for(int cnt = 0; cnt < eventcnt; cnt++){
+                    /*
 					if(events[cnt].data.fd != InotifyFd){
 						WAN_FLCKPRN("Why event fd(%d) is not same inotify fd(%d), but continue...", events[cnt].data.fd, InotifyFd);
 						continue;
 					}
+                    */
 					// check event
 					if(FlckThread::CheckEvent(InotifyFd, WatchFd)){
 						// CLOSE event is occurred.
@@ -152,7 +167,8 @@ void* FlckThread::WorkerProc(void* param)
 	}
 
 	// close all fds
-	inotify_rm_watch(InotifyFd, WatchFd);
+	// inotify_rm_watch(InotifyFd, WatchFd);
+    close(InotifyFd);
 	FLCK_CLOSE(InotifyFd);
 	FLCK_CLOSE(EventFd);
 
@@ -198,6 +214,7 @@ bool FlckThread::CheckEvent(int InotifyFd, int WatchFd)
 	}
 
 	// do for type
+    /*
 	struct inotify_event*	in_event= NULL;
 	bool					retval	= false;
 	for(unsigned char* ptr = pevent; (ptr + sizeof(struct inotify_event)) <= (pevent + bytes); ptr += sizeof(struct inotify_event) + in_event->len){
@@ -212,9 +229,11 @@ bool FlckThread::CheckEvent(int InotifyFd, int WatchFd)
 			retval = true;
 		}
 	}
+    */
 	FLCK_Free(pevent);
 
-	return retval;
+	return true;
+	// return retval;
 }
 
 //---------------------------------------------------------

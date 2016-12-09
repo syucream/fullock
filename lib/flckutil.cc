@@ -127,11 +127,14 @@ bool GetRealPath(const char* pPath, string& strreal)
 	// temporary full path
 	string	tmppath;
 	if('/' != pPath[0]){
-		char*	cur = get_current_dir_name();
+        #define GETCWD_SIZE 1024
+        char cur[GETCWD_SIZE];
+        if (getcwd(cur, GETCWD_SIZE) == NULL) {
+            return false;
+        }
 		tmppath	= cur;
 		tmppath	+= "/";
 		tmppath	+= pPath;
-		FLCK_Free(cur);
 	}else{
 		tmppath = pPath;
 	}
